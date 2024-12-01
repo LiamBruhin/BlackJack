@@ -38,7 +38,8 @@ pub fn main() !void {
         if (deinit_status == .leak) @panic("leaked oh no");
     }
 
-    var stdout = std.io.getStdOut();
+    const stdout = std.io.getStdOut();
+    const outWriter = stdout.writer();
     var stdin = std.io.getStdIn().reader();
 
     // Setup Deck
@@ -46,24 +47,42 @@ pub fn main() !void {
         allocator,
     );
     defer deck.deinit();
-
     newDeck(&deck) catch @panic("Failed to Create Deck");
 
     // Shuffle
     r.shuffle(Card, deck.items);
 
-    while (deck.popOrNull()) |card| {
-        const cardList = try card.toString(allocator);
-        defer cardList.deinit();
+    var playerHand = std.ArrayList(Card).init(
+        allocator,
+    );
+    defer playerHand.deinit();
 
-        const string = cardList.items;
+    try dealNext(&deck, &playerHand, allocator, stdout);
+    try dealNext(&deck, &playerHand, allocator, stdout);
 
-        try stdout.writeAll(string);
+    while (deck.items.len > 0) {
+        const playerHandValue = getHandValue(&playerHand);
+        try outWriter.print("Value: {d}\n", .{playerHandValue});
+        if (playerHandValue < 21) {
+            try outWriter.print("Hit or Stand: ", .{});
+        } else if (playerHandValue > 21) {
+            try outWriter.print("Bust\n", .{});
+            break;
+        } else if (playerHandValue == 21) {
+            try outWriter.print("BlackJack!\n", .{});
+            break;
+        }
 
-        const rawLine = try stdin.readUntilDelimiterAlloc(allocator, '\n', 8192);
-        defer allocator.free(rawLine);
-        const line = std.mem.trim(u8, rawLine, "\r");
-        _ = line;
+        const rawinput = try stdin.readUntilDelimiterAlloc(allocator, '\n', 8192);
+        defer allocator.free(rawinput);
+        const input = std.mem.trim(u8, rawinput, "\r");
+        const lowerCaseInput = try toLower(input, allocator);
+        defer allocator.free(lowerCaseInput);
+        if (std.mem.eql(u8, lowerCaseInput, "hit")) {
+            try dealNext(&deck, &playerHand, allocator, stdout);
+        } else if (std.mem.eql(u8, lowerCaseInput, "stand")) {
+            break;
+        }
     }
 }
 
@@ -83,4 +102,49 @@ pub fn newDeck(deck: *std.ArrayList(Card)) !void {
             });
         }
     }
+}
+
+pub fn dealNext(deck: *std.ArrayList(Card), hand: *std.ArrayList(Card), allocator: std.mem.Allocator, stdout: std.fs.File) !void {
+    const card = deck.pop();
+
+    try hand.append(card);
+
+    const cardList = try card.toString(allocator);
+    defer cardList.deinit();
+
+    const string = cardList.items;
+
+    try stdout.writeAll(string);
+}
+
+pub fn getHandValue(hand: *std.ArrayList(Card)) u16 {
+    var runningCount: u16 = 0;
+    var numAces: u8 = 0;
+    const cards = hand.items;
+    for (cards) |card| {
+        if (card.value == 1) {
+            numAces += 1;
+        }
+        if (card.value >= 10) {
+            runningCount += 10;
+        } else {
+            runningCount += card.value;
+        }
+    }
+
+    for (0..numAces) |_| {
+        if (runningCount + 10 <= 21) {
+            runningCount += 10;
+        }
+    }
+
+    return runningCount;
+}
+
+pub fn toLower(string: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    const res: []u8 = try allocator.alloc(u8, string.len);
+    for (string, 0..) |from, to| {
+        res[to] = std.ascii.toLower(from);
+    }
+    return res;
 }
