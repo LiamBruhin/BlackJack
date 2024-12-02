@@ -2,9 +2,6 @@ const std = @import("std");
 const Random = std.Random;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-var prng = Random.DefaultPrng.init(0);
-const r = prng.random();
-
 const Suits = enum(u3) {
     Hearts,
     Clubs,
@@ -32,6 +29,9 @@ const Card = struct {
 };
 
 pub fn main() !void {
+    var prng = Random.DefaultPrng.init(@as(u64, @intCast(std.time.milliTimestamp())));
+    const r = prng.random();
+
     const allocator = gpa.allocator();
     defer {
         const deinit_status = gpa.deinit();
@@ -52,15 +52,21 @@ pub fn main() !void {
     // Shuffle
     r.shuffle(Card, deck.items);
 
+    // Hands
     var playerHand = std.ArrayList(Card).init(
         allocator,
     );
+    // var dealerHand = std.ArrayList(Card).init(
+    //     allocator,
+    // );
+
     defer playerHand.deinit();
 
     try dealNext(&deck, &playerHand, allocator, stdout);
     try dealNext(&deck, &playerHand, allocator, stdout);
 
     while (deck.items.len > 0) {
+        try printHand(&playerHand, stdout, allocator);
         const playerHandValue = getHandValue(&playerHand);
         try outWriter.print("Value: {d}\n", .{playerHandValue});
         if (playerHandValue < 21) {
@@ -83,6 +89,7 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, lowerCaseInput, "stand")) {
             break;
         }
+        try stdout.writeAll("\x1bc");
     }
 }
 
@@ -109,12 +116,15 @@ pub fn dealNext(deck: *std.ArrayList(Card), hand: *std.ArrayList(Card), allocato
 
     try hand.append(card);
 
-    const cardList = try card.toString(allocator);
-    defer cardList.deinit();
+    _ = allocator;
+    _ = stdout;
 
-    const string = cardList.items;
-
-    try stdout.writeAll(string);
+    // const cardList = try card.toString(allocator);
+    // defer cardList.deinit();
+    //
+    // const string = cardList.items;
+    //
+    // try stdout.writeAll(string);
 }
 
 pub fn getHandValue(hand: *std.ArrayList(Card)) u16 {
@@ -147,4 +157,14 @@ pub fn toLower(string: []const u8, allocator: std.mem.Allocator) ![]const u8 {
         res[to] = std.ascii.toLower(from);
     }
     return res;
+}
+
+pub fn printHand(hand: *std.ArrayList(Card), stdout: std.fs.File, allocator: std.mem.Allocator) !void {
+    for (hand.items) |card| {
+        const cardList = try card.toString(allocator);
+        defer cardList.deinit();
+        const string = cardList.items;
+
+        try stdout.writeAll(string);
+    }
 }
